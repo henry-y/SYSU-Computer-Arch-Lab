@@ -79,80 +79,113 @@ public:
   //FIXME: Feel free to optimize this function
   //Hint: You can use SIMD instructions to optimize this functioni
 void gaussianFilter() {
-    // 处理内部区域 (1 到 size-2)
-    for (size_t i = 1; i < size - 1; ++i) {
-        size_t j = 1;
-        // 每次处理8个像素
-        for (; j + 8 < size - 1; j += 8) {
-            // SIMD 处理主要部分
+    constexpr size_t BLOCK_SIZE = 16;  // 每次处理16字节
+    
+    // 处理主要部分
+    for (size_t j = 1; j < size - 1; j += BLOCK_SIZE) {
+        size_t block_end = std::min(j + BLOCK_SIZE, size - 1);
+        
+        // 初始化三个寄存器用于存储中间结果
+        __m256i prev_row_sum = _mm256_setzero_si256();
+        __m256i curr_row_sum = _mm256_setzero_si256();
+        __m256i next_row_sum = _mm256_setzero_si256();
+        
+        // 先处理第0行对第1行的贡献
+        {
+            __m128i curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[0][j]));
+            __m128i curr_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[0][j-1]));
+            __m128i curr_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[0][j+1]));
+            
+            __m256i curr_16 = _mm256_cvtepu8_epi16(curr);
+            __m256i curr_left_16 = _mm256_cvtepu8_epi16(curr_left);
+            __m256i curr_right_16 = _mm256_cvtepu8_epi16(curr_right);
+            
+            // 第0行对第1行的贡献
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_16, 2)); // *4
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_left_16, 1)); // *2
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_right_16, 1)); // *2
+            
+            next_row_sum = _mm256_add_epi16(next_row_sum, _mm256_slli_epi16(curr_16, 1)); // *2
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_left_16);  // *1
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_right_16); // *1
+
+            prev_row_sum = curr_row_sum;
+            curr_row_sum = next_row_sum;
+            next_row_sum = _mm256_setzero_si256();
+        }
+        
+        // 处理每一行对这些列的贡献
+        for (size_t i = 1; i < size - 1; ++i) {
+            // 加载当前行的数据 (128位)
             __m128i curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j]));
-            __m128i prev = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j]));
-            __m128i next = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j]));
             __m128i curr_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j-1]));
             __m128i curr_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j+1]));
-            __m128i prev_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j-1]));
-            __m128i prev_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j+1]));
-            __m128i next_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j-1]));
-            __m128i next_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j+1]));
-
-            // 转换为16位整数以防止溢出
-            __m128i curr_16 = _mm_cvtepu8_epi16(curr);
-            __m128i prev_16 = _mm_cvtepu8_epi16(prev);
-            __m128i next_16 = _mm_cvtepu8_epi16(next);
-            __m128i curr_left_16 = _mm_cvtepu8_epi16(curr_left);
-            __m128i curr_right_16 = _mm_cvtepu8_epi16(curr_right);
-            __m128i prev_left_16 = _mm_cvtepu8_epi16(prev_left);
-            __m128i prev_right_16 = _mm_cvtepu8_epi16(prev_right);
-            __m128i next_left_16 = _mm_cvtepu8_epi16(next_left);
-            __m128i next_right_16 = _mm_cvtepu8_epi16(next_right);
-
-            // 计算加权和
-            __m128i sum = _mm_setzero_si128();
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_16, 2));        // *4
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_left_16, 1));   // *2
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_right_16, 1));  // *2
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(prev_16, 1));        // *2
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(next_16, 1));        // *2
-            sum = _mm_add_epi16(sum, prev_left_16);                      // *1
-            sum = _mm_add_epi16(sum, prev_right_16);                     // *1
-            sum = _mm_add_epi16(sum, next_left_16);                      // *1
-            sum = _mm_add_epi16(sum, next_right_16);                     // *1
             
-            // 除以16
-            sum = _mm_srli_epi16(sum, 4);
+            // 转换为16位整数
+            __m256i curr_16 = _mm256_cvtepu8_epi16(curr);
+            __m256i curr_left_16 = _mm256_cvtepu8_epi16(curr_left);
+            __m256i curr_right_16 = _mm256_cvtepu8_epi16(curr_right);
             
-            // 转回8位
-            __m128i result_8 = _mm_packus_epi16(sum, sum);
+            // 当前行对三行的贡献
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, _mm256_slli_epi16(curr_16, 1)); // *2
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, curr_left_16);  // *1
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, curr_right_16); // *1
             
-            // 存储结果
-            _mm_storel_epi64(reinterpret_cast<__m128i*>(&result[i][j]), result_8);
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_16, 2)); // *4
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_left_16, 1)); // *2
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_right_16, 1)); // *2
+            
+            next_row_sum = _mm256_add_epi16(next_row_sum, _mm256_slli_epi16(curr_16, 1)); // *2
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_left_16);  // *1
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_right_16); // *1
+            
+            // 当完成一行的处理后，可以写入i-1行的结果
+            if (i > 1) {
+                // 完成i-1行的计算并写入
+                __m256i final_prev = _mm256_srli_epi16(prev_row_sum, 4);
+                
+                // 正确转换为8位并存储结果
+                __m128i result_low = _mm_packus_epi16(
+                    _mm256_castsi256_si128(final_prev),  // 提取低 128 位
+                    _mm_setzero_si128()                  // 设置一个零值，不使用高 128 位
+                );
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(&result[i-1][j]), result_low);
+            }
 
-            // // 使用标量处理第一个和最后一个像素的边界情况
-            // // 第一个像素 (j)
-            // result[i][j] = static_cast<unsigned char>((float)(
-            //     figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
-            //     2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
-            //     figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
-            // ) / 16.0);
-
-            // // 最后一个像素 (j+7)
-            // result[i][j+7] = static_cast<unsigned char>((float)(
-            //     figure[i-1][j+6] + 2 * figure[i-1][j+7] + figure[i-1][j+8] +
-            //     2 * figure[i][j+6] + 4 * figure[i][j+7] + 2 * figure[i][j+8] +
-            //     figure[i+1][j+6] + 2 * figure[i+1][j+7] + figure[i+1][j+8]
-            // ) / 16.0);
+            // 轮换寄存器
+            prev_row_sum = curr_row_sum;
+            curr_row_sum = next_row_sum;
+            next_row_sum = _mm256_setzero_si256();
         }
-
-        // 处理剩余的像素
-        for (; j < size - 1; ++j) {
-            result[i][j] = static_cast<unsigned char>((float)(
-                figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
-                2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
-                figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
-            ) / 16.0);
+        
+        // 处理size-2行的结果
+        {
+            // 加载最后一行的数据
+            __m128i last = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[size-1][j]));
+            __m128i last_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[size-1][j-1]));
+            __m128i last_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[size-1][j+1]));
+            
+            // 转换为16位整数
+            __m256i last_16 = _mm256_cvtepu8_epi16(last);
+            __m256i last_left_16 = _mm256_cvtepu8_epi16(last_left);
+            __m256i last_right_16 = _mm256_cvtepu8_epi16(last_right);
+            
+            // 最后一行对prev的贡献
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, _mm256_slli_epi16(last_16, 1)); // *2
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, last_left_16); // *1
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, last_right_16); // *1
+            
+            // 处理size-2行的结果
+            __m256i final_prev = _mm256_srli_epi16(prev_row_sum, 4);
+            __m128i result_low = _mm_packus_epi16(
+                _mm256_castsi256_si128(final_prev),
+                _mm_setzero_si128()
+            );
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(&result[size-2][j]), result_low);
         }
+        
     }
-
+    
     for (size_t i = 1; i < size - 1; ++i) {
       result[i][0] =
           static_cast<unsigned char>((float)(figure[i - 1][0] + 2 * figure[i - 1][0] + figure[i - 1][1] +
@@ -206,13 +239,7 @@ void gaussianFilter() {
         static_cast<unsigned char>((float)(4 * figure[size - 1][size - 1] + 2 * figure[size - 1][size - 2] +
          2 * figure[size - 2][size - 1] + figure[size - 2][size - 2]) /
         9.0);
-
-    // 保持边界处理代码不变
-    // ... (其余代码保持不变)
   }
-
-    /*
-    */
 
   // Power law transformation
   // FIXME: Feel free to optimize this function
