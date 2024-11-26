@@ -79,14 +79,14 @@ public:
   //FIXME: Feel free to optimize this function
   //Hint: You can use SIMD instructions to optimize this functioni
 void gaussianFilter() {
-    constexpr size_t BLOCK_SIZE = 8;  // 每次处理8字节
+    constexpr size_t BLOCK_SIZE = 16;  // 每次处理16字节
     
     // 处理主要部分
     for (size_t j = 1; j < size - 1; j += BLOCK_SIZE) {
         // 初始化三个寄存器用于存储中间结果
-        __m128i prev_row_sum_low = _mm_setzero_si128();
-        __m128i curr_row_sum_low = _mm_setzero_si128();
-        __m128i next_row_sum_low = _mm_setzero_si128();
+        __m256i prev_row_sum = _mm256_setzero_si256();
+        __m256i curr_row_sum = _mm256_setzero_si256();
+        __m256i next_row_sum = _mm256_setzero_si256();
         
         // 先处理第0行对第1行的贡献
         {
@@ -95,22 +95,22 @@ void gaussianFilter() {
             __m128i curr_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[0][j+1]));
             
             // 转换为16位整数
-            __m128i curr_16_low = _mm_cvtepu8_epi16(curr);
-            __m128i curr_left_16_low = _mm_cvtepu8_epi16(curr_left);
-            __m128i curr_right_16_low = _mm_cvtepu8_epi16(curr_right);
+            __m256i curr_16 = _mm256_cvtepu8_epi16(curr);
+            __m256i curr_left_16 = _mm256_cvtepu8_epi16(curr_left);
+            __m256i curr_right_16 = _mm256_cvtepu8_epi16(curr_right);
             
             // 第0行对第1行的贡献
-            curr_row_sum_low = _mm_add_epi16(curr_row_sum_low, _mm_slli_epi16(curr_16_low, 2)); // *4
-            curr_row_sum_low = _mm_add_epi16(curr_row_sum_low, _mm_slli_epi16(curr_left_16_low, 1)); // *2
-            curr_row_sum_low = _mm_add_epi16(curr_row_sum_low, _mm_slli_epi16(curr_right_16_low, 1)); // *2
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_16, 2)); // *4
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_left_16, 1)); // *2
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_right_16, 1)); // *2
             
-            next_row_sum_low = _mm_add_epi16(next_row_sum_low, _mm_slli_epi16(curr_16_low, 1)); // *2
-            next_row_sum_low = _mm_add_epi16(next_row_sum_low, curr_left_16_low);  // *1
-            next_row_sum_low = _mm_add_epi16(next_row_sum_low, curr_right_16_low); // *1
+            next_row_sum = _mm256_add_epi16(next_row_sum, _mm256_slli_epi16(curr_16, 1)); // *2
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_left_16);  // *1
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_right_16); // *1
 
-            prev_row_sum_low = curr_row_sum_low;
-            curr_row_sum_low = next_row_sum_low;
-            next_row_sum_low = _mm_setzero_si128();
+            prev_row_sum = curr_row_sum;
+            curr_row_sum = next_row_sum;
+            next_row_sum = _mm256_setzero_si256();
         }
         
         // 处理每一行对这些列的贡献
@@ -121,37 +121,40 @@ void gaussianFilter() {
             __m128i curr_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j+1]));
             
             // 转换为16位整数
-            __m128i curr_16_low = _mm_cvtepu8_epi16(curr);
-            __m128i curr_left_16_low = _mm_cvtepu8_epi16(curr_left);
-            __m128i curr_right_16_low = _mm_cvtepu8_epi16(curr_right);
+            __m256i curr_16 = _mm256_cvtepu8_epi16(curr);
+            __m256i curr_left_16 = _mm256_cvtepu8_epi16(curr_left);
+            __m256i curr_right_16 = _mm256_cvtepu8_epi16(curr_right);
             
             // 当前行对三行的贡献
-            prev_row_sum_low = _mm_add_epi16(prev_row_sum_low, _mm_slli_epi16(curr_16_low, 1)); // *2
-            prev_row_sum_low = _mm_add_epi16(prev_row_sum_low, curr_left_16_low);  // *1
-            prev_row_sum_low = _mm_add_epi16(prev_row_sum_low, curr_right_16_low); // *1
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, _mm256_slli_epi16(curr_16, 1)); // *2
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, curr_left_16);  // *1
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, curr_right_16); // *1
             
-            curr_row_sum_low = _mm_add_epi16(curr_row_sum_low, _mm_slli_epi16(curr_16_low, 2)); // *4
-            curr_row_sum_low = _mm_add_epi16(curr_row_sum_low, _mm_slli_epi16(curr_left_16_low, 1)); // *2
-            curr_row_sum_low = _mm_add_epi16(curr_row_sum_low, _mm_slli_epi16(curr_right_16_low, 1)); // *2
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_16, 2)); // *4
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_left_16, 1)); // *2
+            curr_row_sum = _mm256_add_epi16(curr_row_sum, _mm256_slli_epi16(curr_right_16, 1)); // *2
             
-            next_row_sum_low = _mm_add_epi16(next_row_sum_low, _mm_slli_epi16(curr_16_low, 1)); // *2
-            next_row_sum_low = _mm_add_epi16(next_row_sum_low, curr_left_16_low);  // *1
-            next_row_sum_low = _mm_add_epi16(next_row_sum_low, curr_right_16_low); // *1
+            next_row_sum = _mm256_add_epi16(next_row_sum, _mm256_slli_epi16(curr_16, 1)); // *2
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_left_16);  // *1
+            next_row_sum = _mm256_add_epi16(next_row_sum, curr_right_16); // *1
             
             // 当完成一行的处理后，可以写入i-1行的结果
             if (i > 1) {
                 // 完成i-1行的计算并写入
-                __m128i final_prev = _mm_srli_epi16(prev_row_sum_low, 4);
+                __m256i final_prev = _mm256_srli_epi16(prev_row_sum, 4);
                 
                 // 转换为8位并存储结果
-                __m128i result_8 = _mm_packus_epi16(final_prev, _mm_setzero_si128());
-                _mm_storel_epi64(reinterpret_cast<__m128i*>(&result[i-1][j]), result_8);
+                __m128i result_8 = _mm_packus_epi16(
+                    _mm256_castsi256_si128(final_prev),
+                    _mm256_extracti128_si256(final_prev, 1)
+                );
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(&result[i-1][j]), result_8);
             }
 
             // 轮换寄存器
-            prev_row_sum_low = curr_row_sum_low;
-            curr_row_sum_low = next_row_sum_low;
-            next_row_sum_low = _mm_setzero_si128();
+            prev_row_sum = curr_row_sum;
+            curr_row_sum = next_row_sum;
+            next_row_sum = _mm256_setzero_si256();
         }
         
         // 处理size-2行的结果
@@ -162,19 +165,22 @@ void gaussianFilter() {
             __m128i last_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[size-1][j+1]));
             
             // 转换为16位整数
-            __m128i last_16_low = _mm_cvtepu8_epi16(last);
-            __m128i last_left_16_low = _mm_cvtepu8_epi16(last_left);
-            __m128i last_right_16_low = _mm_cvtepu8_epi16(last_right);
+            __m256i last_16 = _mm256_cvtepu8_epi16(last);
+            __m256i last_left_16 = _mm256_cvtepu8_epi16(last_left);
+            __m256i last_right_16 = _mm256_cvtepu8_epi16(last_right);
             
             // 最后一行对prev的贡献
-            prev_row_sum_low = _mm_add_epi16(prev_row_sum_low, _mm_slli_epi16(last_16_low, 1)); // *2
-            prev_row_sum_low = _mm_add_epi16(prev_row_sum_low, last_left_16_low); // *1
-            prev_row_sum_low = _mm_add_epi16(prev_row_sum_low, last_right_16_low); // *1
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, _mm256_slli_epi16(last_16, 1)); // *2
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, last_left_16); // *1
+            prev_row_sum = _mm256_add_epi16(prev_row_sum, last_right_16); // *1
             
             // 处理size-2行的结果
-            __m128i final_prev = _mm_srli_epi16(prev_row_sum_low, 4);
-            __m128i result_8 = _mm_packus_epi16(final_prev, _mm_setzero_si128());
-            _mm_storel_epi64(reinterpret_cast<__m128i*>(&result[size-2][j]), result_8);
+            __m256i final_prev = _mm256_srli_epi16(prev_row_sum, 4);
+            __m128i result_8 = _mm_packus_epi16(
+                _mm256_castsi256_si128(final_prev),
+                _mm256_extracti128_si256(final_prev, 1)
+            );
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(&result[size-2][j]), result_8);
         }
     }
     
