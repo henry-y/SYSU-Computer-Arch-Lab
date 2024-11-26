@@ -79,68 +79,90 @@ public:
   //FIXME: Feel free to optimize this function
   //Hint: You can use SIMD instructions to optimize this functioni
 void gaussianFilter() {
-    // 处理内部区域 (1 到 size-2)
     for (size_t i = 1; i < size - 1; ++i) {
         size_t j = 1;
-        // 每次处理8个像素
+        
+        // 预加载第一组的左边界数据
+        __m128i prev_left_init = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][0]));
+        __m128i curr_left_init = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][0]));
+        __m128i next_left_init = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][0]));
+        
+        // 预加载第一组的当前数据
+        __m128i prev_curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j]));
+        __m128i curr_curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j]));
+        __m128i next_curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j]));
+        
+        // 创建掩码
+        const __m128i last_byte_mask = _mm_set_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1);
+        const __m128i first_byte_mask = _mm_set_epi8(-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        const __m128i shift_right_mask = _mm_set_epi8(15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        const __m128i shift_left_mask = _mm_set_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15);
+        
         for (; j + 8 < size - 1; j += 8) {
-            // SIMD 处理主要部分
-            __m128i curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j]));
-            __m128i prev = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j]));
-            __m128i next = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j]));
-            __m128i curr_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j-1]));
-            __m128i curr_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j+1]));
-            __m128i prev_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j-1]));
-            __m128i prev_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j+1]));
-            __m128i next_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j-1]));
-            __m128i next_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j+1]));
+            // 预加载下一组的数据
+            __m128i prev_next = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j+8]));
+            __m128i curr_next = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j+8]));
+            __m128i next_next = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j+8]));
 
-            // 转换为16位整数以防止溢出
-            __m128i curr_16 = _mm_cvtepu8_epi16(curr);
-            __m128i prev_16 = _mm_cvtepu8_epi16(prev);
-            __m128i next_16 = _mm_cvtepu8_epi16(next);
-            __m128i curr_left_16 = _mm_cvtepu8_epi16(curr_left);
-            __m128i curr_right_16 = _mm_cvtepu8_epi16(curr_right);
-            __m128i prev_left_16 = _mm_cvtepu8_epi16(prev_left);
-            __m128i prev_right_16 = _mm_cvtepu8_epi16(prev_right);
-            __m128i next_left_16 = _mm_cvtepu8_epi16(next_left);
-            __m128i next_right_16 = _mm_cvtepu8_epi16(next_right);
+            // 1. 首先处理当前数据段的主要部分
+            __m128i curr_16 = _mm_cvtepu8_epi16(curr_curr);
+            __m128i prev_16 = _mm_cvtepu8_epi16(prev_curr);
+            __m128i next_16 = _mm_cvtepu8_epi16(next_curr);
 
-            // 计算加权和
+            // 计算中心部分的加权和
             __m128i sum = _mm_setzero_si128();
             sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_16, 2));        // *4
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_left_16, 1));   // *2
-            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_right_16, 1));  // *2
             sum = _mm_add_epi16(sum, _mm_slli_epi16(prev_16, 1));        // *2
             sum = _mm_add_epi16(sum, _mm_slli_epi16(next_16, 1));        // *2
+
+            // 2. 处理并累加左边界
+            __m128i prev_left = _mm_and_si128(prev_left_init, last_byte_mask);
+            __m128i curr_left = _mm_and_si128(curr_left_init, last_byte_mask);
+            __m128i next_left = _mm_and_si128(next_left_init, last_byte_mask);
+            
+            prev_left = _mm_shuffle_epi8(prev_left, shift_left_mask);
+            curr_left = _mm_shuffle_epi8(curr_left, shift_left_mask);
+            next_left = _mm_shuffle_epi8(next_left, shift_left_mask);
+
+            __m128i curr_left_16 = _mm_cvtepu8_epi16(curr_left);
+            __m128i prev_left_16 = _mm_cvtepu8_epi16(prev_left);
+            __m128i next_left_16 = _mm_cvtepu8_epi16(next_left);
+
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_left_16, 1));   // *2
             sum = _mm_add_epi16(sum, prev_left_16);                      // *1
-            sum = _mm_add_epi16(sum, prev_right_16);                     // *1
             sum = _mm_add_epi16(sum, next_left_16);                      // *1
+
+            // 3. 更新左边界为当前数据
+            prev_left_init = prev_curr;
+            curr_left_init = curr_curr;
+            next_left_init = next_curr;
+
+            // 4. 处理并累加右边界
+            __m128i prev_right = _mm_and_si128(prev_next, first_byte_mask);
+            __m128i curr_right = _mm_and_si128(curr_next, first_byte_mask);
+            __m128i next_right = _mm_and_si128(next_next, first_byte_mask);
+            
+            prev_right = _mm_shuffle_epi8(prev_right, shift_right_mask);
+            curr_right = _mm_shuffle_epi8(curr_right, shift_right_mask);
+            next_right = _mm_shuffle_epi8(next_right, shift_right_mask);
+
+            __m128i curr_right_16 = _mm_cvtepu8_epi16(curr_right);
+            __m128i prev_right_16 = _mm_cvtepu8_epi16(prev_right);
+            __m128i next_right_16 = _mm_cvtepu8_epi16(next_right);
+
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_right_16, 1));  // *2
+            sum = _mm_add_epi16(sum, prev_right_16);                     // *1
             sum = _mm_add_epi16(sum, next_right_16);                     // *1
             
-            // 除以16
+            // 5. 除以16并存储结果
             sum = _mm_srli_epi16(sum, 4);
-            
-            // 转回8位
             __m128i result_8 = _mm_packus_epi16(sum, sum);
-            
-            // 存储结果
             _mm_storel_epi64(reinterpret_cast<__m128i*>(&result[i][j]), result_8);
 
-            // 使用标量处理第一个和最后一个像素的边界情况
-            // 第一个像素 (j)
-            result[i][j] = static_cast<unsigned char>((float)(
-                figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
-                2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
-                figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
-            ) / 16.0);
-
-            // 最后一个像素 (j+7)
-            result[i][j+7] = static_cast<unsigned char>((float)(
-                figure[i-1][j+6] + 2 * figure[i-1][j+7] + figure[i-1][j+8] +
-                2 * figure[i][j+6] + 4 * figure[i][j+7] + 2 * figure[i][j+8] +
-                figure[i+1][j+6] + 2 * figure[i+1][j+7] + figure[i+1][j+8]
-            ) / 16.0);
+            // 6. 更新当前数据为下一组的数据
+            prev_curr = prev_next;
+            curr_curr = curr_next;
+            next_curr = next_next;
         }
 
         // 处理剩余的像素
