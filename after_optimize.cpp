@@ -35,6 +35,10 @@ private:
 
 public:
   FigureProcessor(size_t size, size_t seed = 0) : size(size) {
+    // 初始化LUT
+
+    initializeLUT();
+    
     // 预分配对齐的内存
     figure_data.resize(size * size);
     result_data.resize(size * size);
@@ -145,43 +149,68 @@ public:
   // FIXME: Feel free to optimize this function
   // Hint: LUT to optimize this function?
   void powerLawTransformation() {
-    const size_t vectorSize = 16;  // 一次处理16个字节
+    const size_t vectorSize = 32;  // 一次处理32个字节
     
     for (size_t i = 0; i < size; ++i) {
       size_t j = 0;
       // 使用AVX2处理每行的主要部分
       for (; j + vectorSize <= size; j += vectorSize) {
-        // 处理前8个像素
-        __m128i input_low = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(&figure[i][j]));
-        __m256i input_32_low = _mm256_cvtepu8_epi32(input_low);
-        __m256i result_32_low = _mm256_i32gather_epi32(
+        // 加载32个字节
+        __m256i input = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(&figure[i][j]));
+        
+        // 处理低16个字节
+        __m128i input_low = _mm256_extracti128_si256(input, 0);
+        __m256i input_32_low1 = _mm256_cvtepu8_epi32(input_low);
+        __m256i result_32_low1 = _mm256_i32gather_epi32(
             powerLUT32,
-            input_32_low,
+            input_32_low1,
             4
         );
         
-        // 处理后8个像素
-        __m128i input_high = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(&figure[i][j + 8]));
-        __m256i input_32_high = _mm256_cvtepu8_epi32(input_high);
-        __m256i result_32_high = _mm256_i32gather_epi32(
+        __m128i input_low_high = _mm_unpackhi_epi64(input_low, input_low);
+        __m256i input_32_low2 = _mm256_cvtepu8_epi32(input_low_high);
+        __m256i result_32_low2 = _mm256_i32gather_epi32(
             powerLUT32,
-            input_32_high,
+            input_32_low2,
             4
         );
         
-        // 打包16个结果
-        __m256i result_16 = _mm256_packus_epi32(result_32_low, result_32_high);
-        __m128i result_8 = _mm_packus_epi16(
-            _mm256_castsi256_si128(result_16),
-            _mm256_extracti128_si256(result_16, 1)
+        // 处理高16个字节
+        __m128i input_high = _mm256_extracti128_si256(input, 1);
+        __m256i input_32_high1 = _mm256_cvtepu8_epi32(input_high);
+        __m256i result_32_high1 = _mm256_i32gather_epi32(
+            powerLUT32,
+            input_32_high1,
+            4
+        );
+        
+        __m128i input_high_high = _mm_unpackhi_epi64(input_high, input_high);
+        __m256i input_32_high2 = _mm256_cvtepu8_epi32(input_high_high);
+        __m256i result_32_high2 = _mm256_i32gather_epi32(
+            powerLUT32,
+            input_32_high2,
+            4
+        );
+        
+        // 打包结果
+        __m256i result_16_low = _mm256_packus_epi32(result_32_low1, result_32_low2);
+        __m256i result_16_high = _mm256_packus_epi32(result_32_high1, result_32_high2);
+        
+        __m128i result_8_low = _mm_packus_epi16(
+            _mm256_castsi256_si128(result_16_low),
+            _mm256_extracti128_si256(result_16_low, 1)
+        );
+        
+        __m128i result_8_high = _mm_packus_epi16(
+            _mm256_castsi256_si128(result_16_high),
+            _mm256_extracti128_si256(result_16_high, 1)
         );
         
         // 存储结果
-        _mm_storeu_si128(
-            reinterpret_cast<__m128i*>(&result[i][j]),
-            result_8
+        _mm256_storeu_si256(
+            reinterpret_cast<__m256i*>(&result[i][j]),
+            _mm256_set_m128i(result_8_high, result_8_low)
         );
       }
       
@@ -212,7 +241,6 @@ public:
     unsigned int sum = calcChecksum();
 
     auto middle2 = std::chrono::high_resolution_clock::now();
-    initializeLUT();
     powerLawTransformation();
     auto end = std::chrono::high_resolution_clock::now();
 
