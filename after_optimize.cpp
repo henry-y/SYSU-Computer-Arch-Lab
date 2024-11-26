@@ -4,6 +4,7 @@
 #include <random>
 #include <vector>
 #include <immintrin.h>
+#include <cstring>
 
 using std::vector;
 
@@ -78,72 +79,65 @@ public:
   //FIXME: Feel free to optimize this function
   //Hint: You can use SIMD instructions to optimize this function
   void gaussianFilter() {
-    // 处理内部区域
+
+     // 处理内部区域
     for (size_t i = 1; i < size - 1; ++i) {
       for (size_t j = 1; j < size - 1; ++j) {
         result[i][j] =
-            (figure[i - 1][j - 1] + 2 * figure[i - 1][j] +
-             figure[i - 1][j + 1] + 2 * figure[i][j - 1] + 4 * figure[i][j] +
-             2 * figure[i][j + 1] + figure[i + 1][j - 1] +
+            static_cast<unsigned char>((float)(figure[i - 1][j - 1] + 2 * figure[i - 1][j] +
+             figure[i - 1][j + 1] + 
+             2 * figure[i][j - 1] + 
+             4 * figure[i][j] +
+             2 * figure[i][j + 1] + 
+             figure[i + 1][j - 1] +
              2 * figure[i + 1][j] + figure[i + 1][j + 1]) /
-            16;
+            16.0);
       }
     }
 
+    // 处理边界
     for (size_t i = 1; i < size - 1; ++i) {
-      result[i][0] =
-          (figure[i - 1][0] + 2 * figure[i - 1][0] + figure[i - 1][1] +
-           2 * figure[i][0] + 4 * figure[i][0] + 2 * figure[i][1] +
-           figure[i + 1][0] + 2 * figure[i + 1][0] + figure[i + 1][1]) /
-          16;
+      result[i][0] = static_cast<unsigned char>(
+          (float)(figure[i-1][0] + 2*figure[i-1][0] + figure[i-1][1] +
+           2*figure[i][0] + 4*figure[i][0] + 2*figure[i][1] +
+           figure[i+1][0] + 2*figure[i+1][0] + figure[i+1][1]) / 16.0f);
 
-      result[i][size - 1] =
-          (figure[i - 1][size - 2] + 2 * figure[i - 1][size - 1] +
-           figure[i - 1][size - 1] + 2 * figure[i][size - 2] +
-           4 * figure[i][size - 1] + 2 * figure[i][size - 1] +
-           figure[i + 1][size - 2] + 2 * figure[i + 1][size - 1] +
-           figure[i + 1][size - 1]) /
-          16;
-    }
-
-    for (size_t j = 1; j < size - 1; ++j) {
-      result[0][j] =
-          (figure[0][j - 1] + 2 * figure[0][j] + figure[0][j + 1] +
-           2 * figure[0][j - 1] + 4 * figure[0][j] + 2 * figure[0][j + 1] +
-           figure[1][j - 1] + 2 * figure[1][j] + figure[1][j + 1]) /
-          16;
-
-      result[size - 1][j] =
-          (figure[size - 2][j - 1] + 2 * figure[size - 2][j] +
-           figure[size - 2][j + 1] + 2 * figure[size - 1][j - 1] +
-           4 * figure[size - 1][j] + 2 * figure[size - 1][j + 1] +
-           figure[size - 1][j - 1] + 2 * figure[size - 1][j] +
-           figure[size - 1][j + 1]) /
-          16;
+      result[i][size-1] = static_cast<unsigned char>(
+          (float)(figure[i-1][size-2] + 2*figure[i-1][size-1] +
+           figure[i-1][size-1] + 2*figure[i][size-2] +
+           4*figure[i][size-1] + 2*figure[i][size-1] +
+           figure[i+1][size-2] + 2*figure[i+1][size-1] +
+           figure[i+1][size-1]) / 16.0f);
     }
 
     // 处理四个角点
     // 左上角
-    result[0][0] = (4 * figure[0][0] + 2 * figure[0][1] + 2 * figure[1][0] +
+    result[0][0] = static_cast<unsigned char>(
+                (float)(4 * figure[0][0] + 2 * figure[0][1] + 2 * figure[1][0] +
                     figure[1][1]) /
-                   9; 
+                   9.0f); 
 
     // 右上角
-    result[0][size - 1] = (4 * figure[0][size - 1] + 2 * figure[0][size - 2] +
+    result[0][size - 1] = static_cast<unsigned char>(
+                  (float)(4 * figure[0][size - 1] + 2 * figure[0][size - 2] +
                            2 * figure[1][size - 1] + figure[1][size - 2]) /
-                          9;
+                          9.0f);
 
     // 左下角
-    result[size - 1][0] = (4 * figure[size - 1][0] + 2 * figure[size - 1][1] +
+    result[size - 1][0] = static_cast<unsigned char>(
+                  (float)(4 * figure[size - 1][0] + 2 * figure[size - 1][1] +
                            2 * figure[size - 2][0] + figure[size - 2][1]) /
-                          9;
+                          9.0f);
 
     // 右下角
-    result[size - 1][size - 1] =
-        (4 * figure[size - 1][size - 1] + 2 * figure[size - 1][size - 2] +
+    result[size - 1][size - 1] = static_cast<unsigned char>(
+                (float)(4 * figure[size - 1][size - 1] + 2 * figure[size - 1][size - 2] +
          2 * figure[size - 2][size - 1] + figure[size - 2][size - 2]) /
-        9;
-  }
+        9.0f);
+    }
+
+    /*
+    */
 
   // Power law transformation
   // FIXME: Feel free to optimize this function
