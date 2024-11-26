@@ -77,64 +77,139 @@ public:
   // Gaussian filter
   // [[1, 2, 1], [2, 4, 2], [1, 2, 1]] / 16
   //FIXME: Feel free to optimize this function
-  //Hint: You can use SIMD instructions to optimize this function
-  void gaussianFilter() {
-
-     // 处理内部区域
+  //Hint: You can use SIMD instructions to optimize this functioni
+void gaussianFilter() {
+    // 处理内部区域 (1 到 size-2)
     for (size_t i = 1; i < size - 1; ++i) {
-      for (size_t j = 1; j < size - 1; ++j) {
-        result[i][j] =
-            static_cast<unsigned char>((float)(figure[i - 1][j - 1] + 2 * figure[i - 1][j] +
-             figure[i - 1][j + 1] + 
-             2 * figure[i][j - 1] + 
-             4 * figure[i][j] +
-             2 * figure[i][j + 1] + 
-             figure[i + 1][j - 1] +
-             2 * figure[i + 1][j] + figure[i + 1][j + 1]) /
-            16.0);
-      }
+        size_t j = 1;
+        // 每次处理8个像素
+        for (; j + 8 < size - 1; j += 8) {
+            // SIMD 处理主要部分
+            __m128i curr = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j]));
+            __m128i prev = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j]));
+            __m128i next = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j]));
+            __m128i curr_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j-1]));
+            __m128i curr_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i][j+1]));
+            __m128i prev_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j-1]));
+            __m128i prev_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i-1][j+1]));
+            __m128i next_left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j-1]));
+            __m128i next_right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&figure[i+1][j+1]));
+
+            // 转换为16位整数以防止溢出
+            __m128i curr_16 = _mm_cvtepu8_epi16(curr);
+            __m128i prev_16 = _mm_cvtepu8_epi16(prev);
+            __m128i next_16 = _mm_cvtepu8_epi16(next);
+            __m128i curr_left_16 = _mm_cvtepu8_epi16(curr_left);
+            __m128i curr_right_16 = _mm_cvtepu8_epi16(curr_right);
+            __m128i prev_left_16 = _mm_cvtepu8_epi16(prev_left);
+            __m128i prev_right_16 = _mm_cvtepu8_epi16(prev_right);
+            __m128i next_left_16 = _mm_cvtepu8_epi16(next_left);
+            __m128i next_right_16 = _mm_cvtepu8_epi16(next_right);
+
+            // 计算加权和
+            __m128i sum = _mm_setzero_si128();
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_16, 2));        // *4
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_left_16, 1));   // *2
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(curr_right_16, 1));  // *2
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(prev_16, 1));        // *2
+            sum = _mm_add_epi16(sum, _mm_slli_epi16(next_16, 1));        // *2
+            sum = _mm_add_epi16(sum, prev_left_16);                      // *1
+            sum = _mm_add_epi16(sum, prev_right_16);                     // *1
+            sum = _mm_add_epi16(sum, next_left_16);                      // *1
+            sum = _mm_add_epi16(sum, next_right_16);                     // *1
+            
+            // 除以16
+            sum = _mm_srli_epi16(sum, 4);
+            
+            // 转回8位
+            __m128i result_8 = _mm_packus_epi16(sum, sum);
+            
+            // 存储结果
+            _mm_storel_epi64(reinterpret_cast<__m128i*>(&result[i][j]), result_8);
+
+            // 使用标量处理第一个和最后一个像素的边界情况
+            // 第一个像素 (j)
+            result[i][j] = static_cast<unsigned char>((float)(
+                figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
+                2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
+                figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
+            ) / 16.0);
+
+            // 最后一个像素 (j+7)
+            result[i][j+7] = static_cast<unsigned char>((float)(
+                figure[i-1][j+6] + 2 * figure[i-1][j+7] + figure[i-1][j+8] +
+                2 * figure[i][j+6] + 4 * figure[i][j+7] + 2 * figure[i][j+8] +
+                figure[i+1][j+6] + 2 * figure[i+1][j+7] + figure[i+1][j+8]
+            ) / 16.0);
+        }
+
+        // 处理剩余的像素
+        for (; j < size - 1; ++j) {
+            result[i][j] = static_cast<unsigned char>((float)(
+                figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
+                2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
+                figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
+            ) / 16.0);
+        }
     }
 
-    // 处理边界
     for (size_t i = 1; i < size - 1; ++i) {
-      result[i][0] = static_cast<unsigned char>(
-          (float)(figure[i-1][0] + 2*figure[i-1][0] + figure[i-1][1] +
-           2*figure[i][0] + 4*figure[i][0] + 2*figure[i][1] +
-           figure[i+1][0] + 2*figure[i+1][0] + figure[i+1][1]) / 16.0f);
+      result[i][0] =
+          static_cast<unsigned char>((float)(figure[i - 1][0] + 2 * figure[i - 1][0] + figure[i - 1][1] +
+           2 * figure[i][0] + 4 * figure[i][0] + 2 * figure[i][1] +
+           figure[i + 1][0] + 2 * figure[i + 1][0] + figure[i + 1][1]) /
+          16.0);
 
-      result[i][size-1] = static_cast<unsigned char>(
-          (float)(figure[i-1][size-2] + 2*figure[i-1][size-1] +
-           figure[i-1][size-1] + 2*figure[i][size-2] +
-           4*figure[i][size-1] + 2*figure[i][size-1] +
-           figure[i+1][size-2] + 2*figure[i+1][size-1] +
-           figure[i+1][size-1]) / 16.0f);
+      result[i][size - 1] =
+          static_cast<unsigned char>((float)(figure[i - 1][size - 2] + 2 * figure[i - 1][size - 1] +
+           figure[i - 1][size - 1] + 2 * figure[i][size - 2] +
+           4 * figure[i][size - 1] + 2 * figure[i][size - 1] +
+           figure[i + 1][size - 2] + 2 * figure[i + 1][size - 1] +
+           figure[i + 1][size - 1]) /
+          16.0);
+    }
+
+    for (size_t j = 1; j < size - 1; ++j) {
+      result[0][j] =
+          static_cast<unsigned char>((float)(figure[0][j - 1] + 2 * figure[0][j] + figure[0][j + 1] +
+           2 * figure[0][j - 1] + 4 * figure[0][j] + 2 * figure[0][j + 1] +
+           figure[1][j - 1] + 2 * figure[1][j] + figure[1][j + 1]) /
+          16.0);
+
+      result[size - 1][j] =
+          static_cast<unsigned char>((float)(figure[size - 2][j - 1] + 2 * figure[size - 2][j] +
+           figure[size - 2][j + 1] + 2 * figure[size - 1][j - 1] +
+           4 * figure[size - 1][j] + 2 * figure[size - 1][j + 1] +
+           figure[size - 1][j - 1] + 2 * figure[size - 1][j] +
+           figure[size - 1][j + 1]) /
+          16.0);
     }
 
     // 处理四个角点
     // 左上角
-    result[0][0] = static_cast<unsigned char>(
-                (float)(4 * figure[0][0] + 2 * figure[0][1] + 2 * figure[1][0] +
+    result[0][0] = static_cast<unsigned char>((float)(4 * figure[0][0] + 2 * figure[0][1] + 2 * figure[1][0] +
                     figure[1][1]) /
-                   9.0f); 
+                   9.0);
 
     // 右上角
-    result[0][size - 1] = static_cast<unsigned char>(
-                  (float)(4 * figure[0][size - 1] + 2 * figure[0][size - 2] +
+    result[0][size - 1] = static_cast<unsigned char>((float)(4 * figure[0][size - 1] + 2 * figure[0][size - 2] +
                            2 * figure[1][size - 1] + figure[1][size - 2]) /
-                          9.0f);
+                          9.0);
 
     // 左下角
-    result[size - 1][0] = static_cast<unsigned char>(
-                  (float)(4 * figure[size - 1][0] + 2 * figure[size - 1][1] +
+    result[size - 1][0] = static_cast<unsigned char>((float)(4 * figure[size - 1][0] + 2 * figure[size - 1][1] +
                            2 * figure[size - 2][0] + figure[size - 2][1]) /
-                          9.0f);
+                          9.0);
 
     // 右下角
-    result[size - 1][size - 1] = static_cast<unsigned char>(
-                (float)(4 * figure[size - 1][size - 1] + 2 * figure[size - 1][size - 2] +
+    result[size - 1][size - 1] =
+        static_cast<unsigned char>((float)(4 * figure[size - 1][size - 1] + 2 * figure[size - 1][size - 2] +
          2 * figure[size - 2][size - 1] + figure[size - 2][size - 2]) /
-        9.0f);
-    }
+        9.0);
+
+    // 保持边界处理代码不变
+    // ... (其余代码保持不变)
+  }
 
     /*
     */
