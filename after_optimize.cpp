@@ -127,20 +127,20 @@ void gaussianFilter() {
             // 存储结果
             _mm_storel_epi64(reinterpret_cast<__m128i*>(&result[i][j]), result_8);
 
-            // 使用标量处理第一个和最后一个像素的边界情况
-            // 第一个像素 (j)
-            result[i][j] = static_cast<unsigned char>((float)(
-                figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
-                2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
-                figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
-            ) / 16.0);
+            // // 使用标量处理第一个和最后一个像素的边界情况
+            // // 第一个像素 (j)
+            // result[i][j] = static_cast<unsigned char>((float)(
+            //     figure[i-1][j-1] + 2 * figure[i-1][j] + figure[i-1][j+1] +
+            //     2 * figure[i][j-1] + 4 * figure[i][j] + 2 * figure[i][j+1] +
+            //     figure[i+1][j-1] + 2 * figure[i+1][j] + figure[i+1][j+1]
+            // ) / 16.0);
 
-            // 最后一个像素 (j+7)
-            result[i][j+7] = static_cast<unsigned char>((float)(
-                figure[i-1][j+6] + 2 * figure[i-1][j+7] + figure[i-1][j+8] +
-                2 * figure[i][j+6] + 4 * figure[i][j+7] + 2 * figure[i][j+8] +
-                figure[i+1][j+6] + 2 * figure[i+1][j+7] + figure[i+1][j+8]
-            ) / 16.0);
+            // // 最后一个像素 (j+7)
+            // result[i][j+7] = static_cast<unsigned char>((float)(
+            //     figure[i-1][j+6] + 2 * figure[i-1][j+7] + figure[i-1][j+8] +
+            //     2 * figure[i][j+6] + 4 * figure[i][j+7] + 2 * figure[i][j+8] +
+            //     figure[i+1][j+6] + 2 * figure[i+1][j+7] + figure[i+1][j+8]
+            // ) / 16.0);
         }
 
         // 处理剩余的像素
